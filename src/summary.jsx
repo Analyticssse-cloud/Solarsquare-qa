@@ -3,7 +3,6 @@ const { useState: useStateSm, useMemo: useMemoSm } = React;
 
 const APPROVED_SET = ['Confirmed', 'Completed'];
 const REJECTED_SET = ['Rescheduled', 'Dropped', 'No-show', 'Rejected'];
-const SUMMARY_TODAY = '2026-06-08';
 
 // blank accumulator for a city / TL roll-up bucket
 function blankAgg() {
@@ -76,9 +75,10 @@ function NumCell({ value, tone, strong }) {
 
 function SummaryView({ audits, meetings, threshold }) {
   const { fmtDate, cityForTl, AGENTS } = window.QA;
-  const todayISO = '2026-06-08';
+  const todayISO = window.QA.todayISO();
   const [f, setF] = useStateSm({ city: '', tl: '', type: '', from: '', to: '' });
   const set = (k, v) => setF(o => ({ ...o, [k]: v }));
+  const activeCount = ['city', 'tl', 'type', 'from', 'to'].filter(k => f[k]).length;
   const [expanded, setExpanded] = useStateSm({}); // city -> bool (undefined = open)
   const isOpen = c => expanded[c] !== false;
   const toggle = c => setExpanded(o => ({ ...o, [c]: !isOpen(c) }));
@@ -151,64 +151,38 @@ function SummaryView({ audits, meetings, threshold }) {
   const coverage = grand.totalMS ? Math.round((grand.auditsDone / grand.totalMS) * 100) : 0;
   const doneRate = aggDoneRate(grand);
 
-  const quickRange = (kind) => {
-    if (kind === 'all') return setF(o => ({ ...o, from: '', to: '' }));
-    const t = new Date(todayISO + 'T00:00:00');
-    let from = new Date(t);
-    if (kind === 'week') from.setDate(t.getDate() - 6);
-    if (kind === 'month') from.setDate(t.getDate() - 29);
-    setF(o => ({ ...o, from: from.toISOString().slice(0, 10), to: todayISO }));
-  };
-
   const Th = ({ children, w }) => <th style={{ ...window.thStyle, textAlign: 'center', width: w }}>{children}</th>;
 
   return (
     <div>
       <ViewHeader title="City & TL Summary"
-        sub="Audit coverage across every scheduled meeting — by city and team lead. Pending = meetings still waiting for a QA audit."
+        sub="Audit coverage across every scheduled meeting — by city and team lead. Pending = meetings still waiting for a QA audit. Date filter scopes by meeting date, not audit date."
         action={<div style={{ display: 'flex', gap: 10 }}>
           <Button variant="ghost" size="sm" onClick={() => exportSummaryCSV(cities, grand)} disabled={!rows.length} style={{ opacity: rows.length ? 1 : 0.5 }}>↓ Export CSV</Button>
         </div>} />
 
       {/* KPI band */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--gap)', marginBottom: 'var(--gap)' }} className="kpi-grid">
-        <StatCard label="Total MS" value={grand.totalMS} tone="primary" sub="meetings scheduled" />
+        <StatCard label="Total MS" value={grand.totalMS} tone="primary" accent="var(--kpi-1)" sub="meetings scheduled" />
         <StatCard label="Audits Done" value={grand.auditsDone} tone="ok" sub={grand.totalMS ? coverage + '% coverage' : '—'} />
         <StatCard label="Meetings Done" value={grand.held} tone={doneTone(doneRate) === 'neutral' ? 'primary' : doneTone(doneRate)} sub={doneRate == null ? 'of 0 audited' : `${doneRate}% of ${grand.auditsDone} audited`} />
         <StatCard label="Pending" value={grand.pending} tone={grand.pending ? 'warn' : 'ok'} sub="awaiting audit" />
         <StatCard label="Avg meeting score" value={aggScore(grand) == null ? '—' : aggScore(grand) + '%'} tone={aggScore(grand) == null ? 'neutral' : (aggScore(grand) >= threshold ? 'ok' : 'warn')} sub={`approved ${grand.approved} · rejected ${grand.rejected}`} />
       </div>
 
-      {/* filters */}
-      <Card title="Filters" style={{ marginBottom: 'var(--gap)' }}
-        action={<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {[['week', 'This week'], ['month', 'This month'], ['all', 'All time']].map(([k, lbl]) =>
-            <button key={k} type="button" onClick={() => quickRange(k)} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)', background: 'none', border: 'none' }}>{lbl}</button>)}
-          <button type="button" onClick={() => setF({ city: '', tl: '', type: '', from: '', to: '' })} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--primary-strong)', background: 'none', border: 'none' }}>Reset</button>
-        </div>}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }} className="filter-grid">
-          <Field label="City">
-            <Select value={f.city} onChange={v => setF(o => ({ ...o, city: v, tl: '' }))}>
-              <option value="">All cities</option>
-              {cityOpts.map(c => <option key={c} value={c}>{c}</option>)}
-            </Select>
-          </Field>
-          <Field label="Team Lead">
-            <Select value={f.tl} onChange={v => set('tl', v)}>
-              <option value="">All TLs</option>
-              {tlOpts.map(t => <option key={t.email} value={t.email}>{t.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Meeting type">
-            <Select value={f.type} onChange={v => set('type', v)}>
-              <option value="">All types</option>
-              {typeOpts.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-            </Select>
-          </Field>
-          <Field label="From"><TextInput type="date" value={f.from} onChange={v => set('from', v)} /></Field>
-          <Field label="To"><TextInput type="date" value={f.to} onChange={v => set('to', v)} /></Field>
-        </div>
-      </Card>
+      {/* filters — one compact row; date logic always anchored to window.QA.todayISO() */}
+      <FilterBar count={activeCount} onReset={() => setF({ city: '', tl: '', type: '', from: '', to: '' })} style={{ marginBottom: 'var(--gap)' }}>
+        <MiniSelect value={f.city} placeholder="All cities" width={150}
+          onChange={v => setF(o => ({ ...o, city: v, tl: '' }))}
+          options={cityOpts.map(c => ({ value: c, label: c }))} />
+        <MiniSelect value={f.tl} placeholder="All team leads" width={168}
+          onChange={v => set('tl', v)}
+          options={tlOpts.map(t => ({ value: t.email, label: t.name }))} />
+        <MiniSelect value={f.type} placeholder="All meeting types" width={168}
+          onChange={v => set('type', v)}
+          options={typeOpts.map(t => ({ value: t, label: t.replace(/_/g, ' ') }))} />
+        <DateRange label="Meeting date" from={f.from} to={f.to} onChange={(from, to) => setF(o => ({ ...o, from, to }))} />
+      </FilterBar>
 
       {/* summary table */}
       <Card title="City & Team Lead breakdown" subtitle="Click a city to expand its team leads. Sorted by volume; TLs by pending backlog." pad={false}>

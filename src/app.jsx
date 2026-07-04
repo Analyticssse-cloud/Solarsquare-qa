@@ -18,6 +18,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "headingFont": "grotesk",
   "threshold": 80,
   "density": "regular",
+  "style": "bold",
   "dark": false
 }/*EDITMODE-END*/;
 
@@ -26,21 +27,35 @@ const ICONS = {
   audit: <path d="M4 4.5A1.5 1.5 0 015.5 3H11l5 5v8.5A1.5 1.5 0 0114.5 18h-9A1.5 1.5 0 014 16.5v-12z M11 3v5h5 M7.5 11.5l1.6 1.6L13 9.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />,
   analytics: <path d="M4 16V9 M9 16V5 M14 16v-4 M3 16.5h13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />,
   performance: <g fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="10" cy="7.5" r="3.2" /><path d="M4.5 16.5c0-3 2.6-4.7 5.5-4.7s5.5 1.7 5.5 4.7" strokeLinecap="round" /></g>,
-  calibration: <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.2v13.6 M6.5 16.8h7 M4.6 6.6l-2.1 4.2a2.5 2.5 0 004.2 0L4.6 6.6z M15.4 6.6l-2.1 4.2a2.5 2.5 0 004.2 0l-2.1-4.2z M4.6 6.6L10 5l5.4 1.6" /></g>,
+  settings: <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="2.6" /><path d="M10 3.4v2 M10 14.6v2 M16.6 10h-2 M5.4 10h-2 M14.7 5.3l-1.4 1.4 M6.7 13.3l-1.4 1.4 M14.7 14.7l-1.4-1.4 M6.7 6.7L5.3 5.3" /></g>,
+};
+// Decorative identity color per nav item — reuses the section-color variables so the
+// "vibrant"/"bold" style tweak lights up the sidebar too. Purely for visual variety;
+// carries no pass/fail meaning.
+const NAV_ACCENT = {
+  summary: 'var(--sec-qualification)', audit: 'var(--sec-opening)',
+  analytics: 'var(--sec-closing)', performance: 'var(--sec-selling)', settings: 'var(--sec-objection)',
 };
 
-const NAV = [
-  { key: 'summary', label: 'Summary', desc: 'City & TL overview' },
-  { key: 'audit', label: 'New Audit', desc: 'Score a call' },
-  { key: 'analytics', label: 'Analytics', desc: 'Team reporting' },
-  { key: 'calibration', label: 'Calibration', desc: 'TL vs QA scores' },
-  { key: 'performance', label: 'My Performance', desc: 'LRM scorecard' },
-];
+const NAV_ALL = {
+  summary: { key: 'summary', label: 'Summary', desc: 'City & TL overview' },
+  audit: { key: 'audit', label: 'New Audit', desc: 'Score a call' },
+  analytics: { key: 'analytics', label: 'Analytics', desc: 'Reporting & calibration' },
+  performance: { key: 'performance', label: 'Team Performance', desc: "Your team's LRMs" },
+  settings: { key: 'settings', label: 'Settings', desc: 'Admin only' },
+};
+// Which nav items each role sees, in order. LRM is locked to their own scorecard only;
+// ZSM/ADOS oversee their downline (summary/analytics/team performance + new audit); TL/QA/
+// Admin get the full set. Keys reference NAV_ALL above.
+function navForRole(role, isAdmin) {
+  if (role === 'LRM' && !isAdmin) return ['performance'];
+  return isAdmin ? ['summary', 'audit', 'analytics', 'performance', 'settings'] : ['summary', 'audit', 'analytics', 'performance'];
+}
 
-function Sidebar({ active, onNav, count, session, onSignOut, signInEnabled }) {
+function Sidebar({ active, onNav, count, session, onSignOut, signInEnabled, items, isAdmin }) {
   const who = (session && (session.name || session.email)) || 'Signed in';
   const role = (session && session.role) || ((session && session.email) ? window.QA.roleForEmail(session.email) : '');
-  const sub = (window.QA.ROLE_LABEL && window.QA.ROLE_LABEL[role]) || 'Team Lead';
+  const sub = isAdmin ? 'Admin' : ((window.QA.ROLE_LABEL && window.QA.ROLE_LABEL[role]) || 'Team Lead');
   return (
     <aside className="ss-sidebar" style={{
       width: 252, flex: '0 0 252px', background: 'var(--surface)', borderRight: '1px solid var(--line)',
@@ -55,7 +70,7 @@ function Sidebar({ active, onNav, count, session, onSignOut, signInEnabled }) {
       </div>
 
       <nav className="ss-nav" style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '0 12px', flex: 1 }}>
-        {NAV.map(n => {
+        {items.map(n => {
           const on = active === n.key;
           return (
             <button key={n.key} onClick={() => onNav(n.key)} style={{
@@ -65,7 +80,14 @@ function Sidebar({ active, onNav, count, session, onSignOut, signInEnabled }) {
             }}
               onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--surface-2)'; }}
               onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
-              <svg width="20" height="20" viewBox="0 0 20 20" style={{ flex: '0 0 auto', color: on ? 'var(--primary)' : 'var(--ink-3)' }}>{ICONS[n.key]}</svg>
+              <span style={{
+                width: 26, height: 26, borderRadius: 8, flex: '0 0 auto', display: 'inline-flex',
+                alignItems: 'center', justifyContent: 'center',
+                background: on ? `color-mix(in oklch, ${NAV_ACCENT[n.key]} 20%, transparent)` : 'transparent',
+                color: on ? NAV_ACCENT[n.key] : 'var(--ink-3)', transition: 'background 0.15s, color 0.15s',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 20 20">{ICONS[n.key]}</svg>
+              </span>
               <span style={{ flex: 1 }}>
                 <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, lineHeight: 1.2 }}>{n.label}</span>
                 <span style={{ display: 'block', fontSize: 11.5, color: 'var(--ink-3)', fontWeight: 500 }}>{n.desc}</span>
@@ -80,7 +102,7 @@ function Sidebar({ active, onNav, count, session, onSignOut, signInEnabled }) {
         <Avatar name={who} size={34} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{who}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
+          <div style={{ fontSize: 11, color: isAdmin ? 'var(--primary-strong)' : 'var(--ink-3)', fontWeight: isAdmin ? 700 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
         </div>
         {signInEnabled
           ? <button onClick={onSignOut} title="Sign out" aria-label="Sign out" style={{
@@ -117,6 +139,12 @@ function App() {
     (async () => {
       try { await (authApi.init ? authApi.init() : Promise.resolve()); } catch (e) { /* fail closed */ }
       if (!alive) return;
+      // Admin's local QA-auditor override (if saved from Settings) wins over the server
+      // default for this browser — applied after server config so it takes precedence.
+      try {
+        const saved = JSON.parse(localStorage.getItem('qa_auditor_emails_override') || 'null');
+        if (Array.isArray(saved) && saved.length) window.QA.setQaAuditorEmails(saved);
+      } catch (e) { /* ignore malformed override */ }
       const on = !!authApi.enabled;
       setGated(on);
       const sess = authApi.session;
@@ -138,7 +166,7 @@ function App() {
           api.getCurrentUser(), api.getAllEmployees(), api.loadAudits(), api.loadMeetings(),
         ]);
         if (!alive) return;
-        if (user && user.email) setSession({ ...user, role: window.QA.roleForEmail(user.email) });
+        if (user && user.email) setSession({ ...user, role: window.QA.orgRoleForEmail(user.email, emps) });
         setAgents(emps); setAudits(list); setMeetings(mtg); setPhase('ready');
       } catch (err) {
         if (!alive) return;
@@ -151,6 +179,34 @@ function App() {
 
   const reload = async () => { setAudits(await window.QA.api.loadAudits()); };
 
+  // ---- Role-based scope ----
+  // Admin (a named allowlist) and QA Auditors see every team unrestricted. Everyone else —
+  // LRM / TL / ZSM / ADOS — only sees their own reporting line, derived from the live
+  // employee list so it tracks real EmployeeMaster data, not a hard-coded org chart.
+  const isAdmin = window.QA.isAdminEmail(session && session.email);
+  const myRole = (session && session.role) || 'TL';
+  const hasIdentity = !!(session && session.email);
+  const scopeEmails = (isAdmin || myRole === 'QA' || !hasIdentity) ? null : window.QA.agentEmailsForScope(myRole, session && session.email, agents);
+  const scopedAgents = scopeEmails ? agents.filter(a => scopeEmails.has(a.email)) : agents;
+  const scopedAudits = scopeEmails ? audits.filter(a => scopeEmails.has(a.agentEmail)) : audits;
+  const scopedMeetings = scopeEmails ? meetings.filter(m => scopeEmails.has(m.lrmEmail)) : meetings;
+
+  const navItems = navForRole(myRole, isAdmin).map(k => {
+    const base = NAV_ALL[k];
+    if (k === 'performance') {
+      return myRole === 'LRM' && !isAdmin
+        ? { ...base, label: 'My Performance', desc: 'Your scorecard' }
+        : base;
+    }
+    return base;
+  });
+
+  // Keep `active` valid as role resolves (e.g. an LRM only ever has one tab).
+  useEffectApp(() => {
+    if (phase !== 'ready') return;
+    if (!navItems.some(n => n.key === active)) setActive(navItems[0].key);
+  }, [phase, myRole, isAdmin]);
+
   const hue = (ACCENTS.find(a => a.hex === t.accent) || ACCENTS[0]).hue;
   const fonts = FONTS[t.headingFont] || FONTS.grotesk;
 
@@ -161,7 +217,8 @@ function App() {
     r.style.setProperty('--font-ui', fonts.ui);
     r.setAttribute('data-density', t.density);
     r.setAttribute('data-theme', t.dark ? 'dark' : 'light');
-  }, [hue, fonts.display, fonts.ui, t.density, t.dark]);
+    r.setAttribute('data-style', t.style || 'minimal');
+  }, [hue, fonts.display, fonts.ui, t.density, t.dark, t.style]);
 
   const submitAudit = async (payload) => {
     setBusy(true);
@@ -177,14 +234,14 @@ function App() {
 
   return (
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }} className="ss-shell">
-      <Sidebar active={active} onNav={setActive} count={audits.length} session={session} onSignOut={authApi.signOut} signInEnabled={gated} />
+      <Sidebar active={active} onNav={setActive} count={scopedAudits.length} session={session} onSignOut={authApi.signOut} signInEnabled={gated} items={navItems} isAdmin={isAdmin} />
       <main className="ss-main" style={{ flex: 1, minWidth: 0, overflowY: 'auto', height: '100%' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '34px clamp(20px, 4vw, 44px) 80px' }}>
-          {active === 'summary' && <SummaryView audits={audits} meetings={meetings} threshold={t.threshold} />}
-          {active === 'audit' && <AuditView agents={agents} meetings={meetings} audits={audits} onSubmit={submitAudit} threshold={t.threshold} session={session} busy={busy} />}
-          {active === 'analytics' && <AnalyticsView audits={audits} threshold={t.threshold} />}
-          {active === 'calibration' && <CalibrationView audits={audits} threshold={t.threshold} />}
-          {active === 'performance' && <PerformanceView audits={audits} agents={agents} threshold={t.threshold} />}
+          {active === 'summary' && <SummaryView audits={scopedAudits} meetings={scopedMeetings} threshold={t.threshold} />}
+          {active === 'audit' && <AuditView agents={scopedAgents} meetings={scopedMeetings} audits={scopedAudits} onSubmit={submitAudit} threshold={t.threshold} session={session} busy={busy} />}
+          {active === 'analytics' && <AnalyticsView audits={scopedAudits} threshold={t.threshold} />}
+          {active === 'performance' && <PerformanceView audits={scopedAudits} agents={scopedAgents} threshold={t.threshold} session={session} />}
+          {active === 'settings' && <SettingsView agents={agents} audits={audits} session={session} />}
         </div>
       </main>
 
@@ -196,6 +253,7 @@ function App() {
         <TweakSlider label="Pass threshold" value={t.threshold} min={50} max={95} step={5} unit="%" onChange={v => setTweak('threshold', v)} />
         <TweakSection label="Display" />
         <TweakRadio label="Density" value={t.density} options={['compact', 'regular', 'comfy']} onChange={v => setTweak('density', v)} />
+        <TweakRadio label="Style" value={t.style} options={[{ value: 'minimal', label: 'Minimal' }, { value: 'vibrant', label: 'Vibrant' }, { value: 'bold', label: 'Bold' }]} onChange={v => setTweak('style', v)} />
         <TweakToggle label="Dark mode" value={t.dark} onChange={v => setTweak('dark', v)} />
       </TweaksPanel>
 

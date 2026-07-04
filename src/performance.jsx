@@ -9,13 +9,15 @@ const STATUS_TONES = {
 };
 function statusTone(s) { return STATUS_TONES[s] || 'neutral'; }
 
-function PerformanceView({ audits, threshold, agents }) {
+function PerformanceView({ audits, threshold, agents, session }) {
   const { SECTIONS, fmtDate } = window.QA;
+  const lockToSelf = session && session.role === 'LRM';
   const [sel, setSel] = useStateP(agents[0]?.name || '');
   const [f, setF] = useStateP({ mgr: '', tl: '', auditor: '', from: '', to: '' });
   const set = (k, v) => setF(o => ({ ...o, [k]: v }));
   const reset = () => setF({ mgr: '', tl: '', auditor: '', from: '', to: '' });
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const activeCount = ['mgr', 'tl', 'auditor', 'from', 'to'].filter(k => f[k]).length;
+  const todayISO = window.QA.todayISO();
 
   // ZSM / Team Lead options derived from the REAL employee list (not the sample roster)
   const managers = useMemoP(() => {
@@ -83,47 +85,40 @@ function PerformanceView({ audits, threshold, agents }) {
 
   return (
     <div>
-      <ViewHeader title="My Performance"
-        sub="An agent's full quality history — section strengths, gaps and every audit on record."
+      <ViewHeader title={lockToSelf ? 'My Performance' : 'Team Performance'}
+        sub={lockToSelf ? 'Your full quality history — section strengths, gaps and every audit on record.' : "An agent's full quality history — section strengths, gaps and every audit on record."}
         action={<Button size="sm" onClick={exportPDF} disabled={!group.length} style={{ opacity: group.length ? 1 : 0.5 }}>↓ Export PDF ({group.length})</Button>}
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-        <Card title="Filters" action={<div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button type="button" onClick={() => setF(o => ({ ...o, from: todayISO, to: todayISO }))} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)', background: 'none', border: 'none' }}>Today</button>
-          <button type="button" onClick={reset} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--primary-strong)', background: 'none', border: 'none' }}>Reset all</button>
-        </div>}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }} className="filter-grid">
-            <Field label="LRM">
-              <Select value={sel} onChange={setSel}>
-                {agentOpts.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="ZSM">
-              <Select value={f.mgr} onChange={v => setF(o => ({ ...o, mgr: v, tl: '' }))}>
-                <option value="">All ZSMs</option>
-                {managers.map(m => <option key={m.email} value={m.email}>{m.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Team Lead">
-              <Select value={f.tl} onChange={v => set('tl', v)}>
-                <option value="">All TLs</option>
-                {teamLeads.map(t => <option key={t.email} value={t.email}>{t.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Auditor">
-              <Select value={f.auditor} onChange={v => set('auditor', v)}>
-                <option value="">All auditors</option>
-                {auditors.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="From"><TextInput type="date" value={f.from} onChange={v => set('from', v)} /></Field>
-            <Field label="To"><TextInput type="date" value={f.to} onChange={v => set('to', v)} /></Field>
-          </div>
-        </Card>
+        {/* LRM picker is the primary control for this view — kept prominent, separate from the filter bar.
+            An LRM's own scorecard has nothing to pick (agents is pre-scoped to just them), so it's hidden. */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+          {!lockToSelf && (
+            <div style={{ minWidth: 220 }}>
+              <Field label="Viewing LRM">
+                <Select value={sel} onChange={setSel}>
+                  {agentOpts.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+                </Select>
+              </Field>
+            </div>
+          )}
+          <FilterBar count={activeCount} onReset={reset} style={{ flex: 1, minWidth: 320 }}>
+            {!lockToSelf && <MiniSelect value={f.mgr} placeholder="All ZSMs" width={140}
+              onChange={v => setF(o => ({ ...o, mgr: v, tl: '' }))}
+              options={managers.map(m => ({ value: m.email, label: m.name }))} />}
+            {!lockToSelf && <MiniSelect value={f.tl} placeholder="All TLs" width={140}
+              onChange={v => set('tl', v)}
+              options={teamLeads.map(t => ({ value: t.email, label: t.name }))} />}
+            <MiniSelect value={f.auditor} placeholder="All auditors" width={150}
+              onChange={v => set('auditor', v)}
+              options={auditors.map(a => ({ value: a.email, label: a.name }))} />
+            <DateRange label="Audit date" from={f.from} to={f.to} onChange={(from, to) => setF(o => ({ ...o, from, to }))} />
+          </FilterBar>
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--gap)' }} className="kpi-grid">
-          <StatCard label="Audits done so far" value={group.length} tone="primary" sub={sel || '—'} />
+          <StatCard label="Audits done so far" value={group.length} tone="primary" accent="var(--kpi-1)" sub={sel || '—'} />
           <StatCard label="Meetings approved" value={meetingStats.approved} tone="ok" sub="confirmed / completed" />
           <StatCard label="Meetings rejected" value={meetingStats.rejected} tone="bad" sub="rescheduled / dropped / no-show" />
         </div>

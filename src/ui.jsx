@@ -46,13 +46,14 @@ function scoreTone(pct, threshold) {
   return 'bad';
 }
 
-function Card({ title, subtitle, action, children, pad = true, style, bodyStyle }) {
+function Card({ title, subtitle, action, children, pad = true, style, bodyStyle, accent }) {
   return (
     <section style={{
       background: 'var(--surface)', border: '1px solid var(--line)',
       borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden',
-      ...style,
+      position: 'relative', ...style,
     }}>
+      {accent && <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: accent }} />}
       {(title || action) && (
         <header style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -253,8 +254,122 @@ function EmptyState({ icon = '○', title, body }) {
   );
 }
 
+// ---- Compact date-range control ----
+// One control, one set of rules, used everywhere a view filters by date. Presets are
+// computed off window.QA.todayISO() — the single shared "today" — so "Today"/"7D"/"30D"
+// mean the exact same thing on every screen. Custom range hides behind a popover instead
+// of two always-visible date inputs.
+function addDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n);
+  const p = x => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function DateRange({ from, to, onChange, align = 'left', label }) {
+  const today = window.QA.todayISO();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const presets = [
+    { key: 'today', label: 'Today', range: [today, today] },
+    { key: '7d', label: '7D', range: [addDays(today, -6), today] },
+    { key: '30d', label: '30D', range: [addDays(today, -29), today] },
+    { key: 'all', label: 'All time', range: ['', ''] },
+  ];
+  const active = presets.find(p => p.range[0] === (from || '') && p.range[1] === (to || ''));
+  const presetLabel = active ? active.label : (from || to) ? `${window.QA.fmtDateShort(from) || '…'} – ${window.QA.fmtDateShort(to) || '…'}` : 'All time';
+  const pick = (f, t) => { onChange(f, t); setOpen(false); };
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 12px',
+        borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)',
+        background: active && active.key !== 'all' ? 'var(--primary-soft)' : 'var(--surface)',
+        color: active && active.key !== 'all' ? 'var(--primary-strong)' : 'var(--ink-2)',
+        fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8h13 M7 3v3 M13 3v3" /></svg>
+        {label && <span style={{ opacity: 0.65, fontWeight: 500 }}>{label}:</span>}
+        {presetLabel}
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', [align === 'right' ? 'right' : 'left']: 0, zIndex: 50,
+          background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
+          boxShadow: 'var(--shadow-lg)', padding: 12, width: 260,
+        }}>
+          {label && <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ink-3)', marginBottom: 8 }}>Filter by {label.toLowerCase()}</div>}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {presets.map(p => (
+              <button key={p.key} type="button" onClick={() => pick(p.range[0], p.range[1])} style={{
+                flex: '1 1 auto', height: 30, padding: '0 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: '1px solid ' + (active && active.key === p.key ? 'var(--primary)' : 'var(--line)'),
+                background: active && active.key === p.key ? 'var(--primary-soft)' : 'transparent',
+                color: active && active.key === p.key ? 'var(--primary-strong)' : 'var(--ink-2)',
+              }}>{p.label}</button>
+            ))}
+          </div>
+          <div style={{ height: 1, background: 'var(--line-soft)', margin: '2px 0 10px' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Field label="From"><TextInput type="date" value={from || ''} onChange={v => onChange(v, to)} /></Field>
+            <Field label="To"><TextInput type="date" value={to || ''} onChange={v => onChange(from, v)} /></Field>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Compact single-row filter bar ----
+// Wraps a row of small controls (selects, search, DateRange). Shows a "Reset" pill only
+// when something is actually filtered, so the bar reads as empty/quiet by default instead
+// of a wall of dropdowns. `count` = number of active filters (caller computes it).
+function FilterBar({ children, count = 0, onReset, style }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      padding: '10px 12px', background: 'var(--surface)', border: '1px solid var(--line)',
+      borderRadius: 'var(--radius-sm)', ...style,
+    }}>
+      <span style={{ flex: '0 0 auto', color: 'var(--ink-3)', display: 'inline-flex' }}>
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h14M6 10h8M8.5 15h3" /></svg>
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>{children}</div>
+      {count > 0 && (
+        <button type="button" onClick={onReset} style={{
+          flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 6, height: 30, padding: '0 10px',
+          borderRadius: 99, border: '1px solid var(--line)', background: 'var(--surface-2)',
+          color: 'var(--primary-strong)', fontSize: 12, fontWeight: 700,
+        }}>Clear {count} filter{count > 1 ? 's' : ''} ×</button>
+      )}
+    </div>
+  );
+}
+// compact select used inside a FilterBar (fixed-ish width, no label — a placeholder option stands in)
+function MiniSelect({ value, onChange, options, placeholder, width = 148 }) {
+  return (
+    <div style={{ width, flex: '0 0 auto' }}>
+      <Select value={value} onChange={onChange} style={{ height: 36 }}>
+        <option value="">{placeholder}</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </Select>
+    </div>
+  );
+}
+function MiniSearch({ value, onChange, placeholder, width = 176 }) {
+  return (
+    <div style={{ width, flex: '0 0 auto' }}>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ ...inputBase, height: 36, fontSize: 13 }} />
+    </div>
+  );
+}
+
 Object.assign(window, {
   cx, Avatar, Badge, Card, ScoreRing, SegToggle, HBars, TrendLine,
   Field, TextInput, Select, TextArea, Button, Table, thStyle, tdStyle,
-  EmptyState, scoreTone, TONE,
+  EmptyState, scoreTone, TONE, DateRange, FilterBar, MiniSelect, MiniSearch,
 });

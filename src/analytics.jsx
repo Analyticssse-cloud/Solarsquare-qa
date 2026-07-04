@@ -60,14 +60,15 @@ function exportAuditsPDF(data, opts) {
   w.document.open(); w.document.write(html); w.document.close();
 }
 
-function StatCard({ label, value, sub, tone = 'primary', spark }) {
+function StatCard({ label, value, sub, tone = 'primary', spark, accent }) {
   const t = window.TONE[tone] || window.TONE.primary;
+  const stripeColor = accent || t.fg;
   return (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--radius)',
       padding: 'var(--pad-card)', boxShadow: 'var(--shadow-sm)', position: 'relative', overflow: 'hidden',
     }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: t.fg, opacity: 0.85 }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: stripeColor, opacity: 0.85 }} />
       <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-3)' }}>{label}</div>
       <div className="tnum" style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 34, color: 'var(--ink)', lineHeight: 1.05, marginTop: 8 }}>{value}</div>
       {sub && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 6 }}>{sub}</div>}
@@ -77,10 +78,12 @@ function StatCard({ label, value, sub, tone = 'primary', spark }) {
 
 function AnalyticsView({ audits, threshold }) {
   const { SECTIONS, PARAMS, fmtDate } = window.QA;
+  const [sub, setSub] = useStateAn('scoreboard'); // 'scoreboard' | 'calibration'
   const [f, setF] = useStateAn({ mgr: '', tl: '', auditor: '', q: '', from: '', to: '' });
   const set = (k, v) => setF(o => ({ ...o, [k]: v }));
   const reset = () => setF({ mgr: '', tl: '', auditor: '', q: '', from: '', to: '' });
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const activeCount = ['mgr', 'tl', 'auditor', 'q', 'from', 'to'].filter(k => f[k]).length;
+  const todayISO = window.QA.todayISO();
 
   // ZSM / Team Lead options derived from REAL audit data (not the sample roster)
   const managers = useMemoAn(() => {
@@ -175,89 +178,89 @@ function AnalyticsView({ audits, threshold }) {
           <Button size="sm" onClick={downloadCurrent} disabled={!rows.length} style={{ opacity: rows.length ? 1 : 0.5 }}>↓ Export PDF ({rows.length})</Button>
         </div>} />
 
+      {/* sub-tabs: Scoreboard/reporting vs TL-vs-QA calibration — kept as one nav entry */}
+      <div role="tablist" style={{ display: 'inline-flex', gap: 4, padding: 4, background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 99, marginBottom: 'var(--gap)' }}>
+        {[['scoreboard', 'Scoreboard'], ['calibration', 'TL vs QA Calibration']].map(([k, lbl]) => (
+          <button key={k} type="button" role="tab" aria-selected={sub === k} onClick={() => setSub(k)} style={{
+            padding: '8px 16px', borderRadius: 99, border: 'none', fontSize: 13, fontWeight: 600,
+            background: sub === k ? 'var(--surface)' : 'transparent', color: sub === k ? 'var(--ink)' : 'var(--ink-3)',
+            boxShadow: sub === k ? 'var(--shadow-sm)' : 'none', transition: 'all 0.15s',
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {sub === 'calibration' ? (
+        <window.CalibrationView audits={audits} threshold={threshold} />
+      ) : (
+      <React.Fragment>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--gap)', marginBottom: 'var(--gap)' }} className="kpi-grid">
-        <StatCard label="Total audits" value={kpi.n} tone="primary" sub="in current filter" />
+        <StatCard label="Total audits" value={kpi.n} tone="primary" accent="var(--kpi-1)" sub="in current filter" />
         <StatCard label="Average score" value={kpi.avg + '%'} tone={kpi.avg >= threshold ? 'ok' : 'warn'} sub={`pass threshold ${threshold}%`} />
         <StatCard label="Passed" value={kpi.passed} tone="ok" sub={kpi.n ? kpi.rate + '% pass rate' : '—'} />
         <StatCard label="Failed" value={kpi.failed} tone="bad" sub={kpi.n ? (100 - kpi.rate) + '% below bar' : '—'} />
       </div>
 
-      {/* filters + trend */}
+      {/* filters — one compact row + trend alongside */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 'var(--gap)', marginBottom: 'var(--gap)', alignItems: 'stretch' }} className="filter-trend-grid">
-        <Card title="Filters" action={<div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button type="button" onClick={() => setF(o => ({ ...o, from: todayISO, to: todayISO }))} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)', background: 'none', border: 'none' }}>Today</button>
-          <button type="button" onClick={reset} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--primary-strong)', background: 'none', border: 'none' }}>Reset all</button>
-        </div>}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }} className="filter-grid">
-            <Field label="ZSM">
-              <Select value={f.mgr} onChange={v => setF(o => ({ ...o, mgr: v, tl: '' }))}>
-                <option value="">All ZSMs</option>
-                {managers.map(m => <option key={m.email} value={m.email}>{m.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Team Lead">
-              <Select value={f.tl} onChange={v => set('tl', v)}>
-                <option value="">All TLs</option>
-                {teamLeads.map(t => <option key={t.email} value={t.email}>{t.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Auditor">
-              <Select value={f.auditor} onChange={v => set('auditor', v)}>
-                <option value="">All auditors</option>
-                {auditors.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Search LRM"><TextInput value={f.q} onChange={v => set('q', v)} placeholder="Name…" /></Field>
-            <Field label="From"><TextInput type="date" value={f.from} onChange={v => set('from', v)} /></Field>
-            <Field label="To"><TextInput type="date" value={f.to} onChange={v => set('to', v)} /></Field>
-          </div>
-        </Card>
-        <Card title="Weekly avg trend" subtitle={`${trend.length} week${trend.length === 1 ? '' : 's'}`}>
-          {trend.length ? <TrendLine data={trend} threshold={threshold} height={92} /> : <div style={{ height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 13 }}>No data</div>}
+        <FilterBar count={activeCount} onReset={reset}>
+          <MiniSearch value={f.q} onChange={v => set('q', v)} placeholder="Search LRM…" width={150} />
+          <MiniSelect value={f.mgr} placeholder="All ZSMs" width={140}
+            onChange={v => setF(o => ({ ...o, mgr: v, tl: '' }))}
+            options={managers.map(m => ({ value: m.email, label: m.name }))} />
+          <MiniSelect value={f.tl} placeholder="All TLs" width={140}
+            onChange={v => set('tl', v)}
+            options={teamLeads.map(t => ({ value: t.email, label: t.name }))} />
+          <MiniSelect value={f.auditor} placeholder="All auditors" width={150}
+            onChange={v => set('auditor', v)}
+            options={auditors.map(a => ({ value: a.email, label: a.name }))} />
+          <DateRange label="Audit date" from={f.from} to={f.to} onChange={(from, to) => setF(o => ({ ...o, from, to }))} />
+        </FilterBar>
+        <Card title="Weekly avg trend" subtitle={`${trend.length} week${trend.length === 1 ? '' : 's'}`} bodyStyle={{ paddingTop: 8 }}>
+          {trend.length ? <TrendLine data={trend} threshold={threshold} height={72} /> : <div style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 13 }}>No data</div>}
         </Card>
       </div>
 
-      {/* scoreboard */}
+      {/* scoreboard — intentionally denser than the app default: this table is scanned
+          row-by-row across many LRMs, so it uses tighter row height + smaller avatar/type
+          than other tables regardless of the global Density tweak. */}
       <Card title="LRM performance scoreboard" subtitle="Per-agent section averages, ranked by overall score." pad={false} style={{ marginBottom: 'var(--gap)' }}>
         {scoreboard.length ? (
           <div style={{ overflowX: 'auto' }}>
-            <Table>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead><tr>
-                <th style={{ ...thStyle, left: 0 }}>LRM</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>Audits</th>
-                {SECTIONS.map(s => <th key={s.key} style={{ ...thStyle, textAlign: 'center' }}>{s.short}</th>)}
-                <th style={{ ...thStyle, textAlign: 'center' }}>Overall</th>
+                <th style={{ ...thStyle, left: 0, padding: '8px 16px' }}>LRM</th>
+                <th style={{ ...thStyle, textAlign: 'center', padding: '8px 10px' }}>Audits</th>
+                {SECTIONS.map(s => <th key={s.key} style={{ ...thStyle, textAlign: 'center', padding: '8px 10px' }}>{s.short}</th>)}
+                <th style={{ ...thStyle, textAlign: 'center', padding: '8px 10px' }}>Overall</th>
               </tr></thead>
               <tbody>
                 {scoreboard.map((m, i) => (
                   <tr key={m.name} style={{ transition: 'background 0.12s' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)', width: 18 }}>{i + 1}</span>
-                        <Avatar name={m.name} size={30} />
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 13.5 }}>{m.name}</div>
-                          <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{m.tlName}</div>
-                        </div>
+                    <td style={{ ...tdStyle, height: 40, padding: '0 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', width: 14 }}>{i + 1}</span>
+                        <Avatar name={m.name} size={22} />
+                        <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>{m.name}</span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>· {m.tlName}</span>
                       </div>
                     </td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}><Badge tone="neutral" mono>{m.n}</Badge></td>
+                    <td style={{ ...tdStyle, height: 40, padding: '0 10px', textAlign: 'center' }}><Badge tone="neutral" mono style={{ padding: '2px 8px', fontSize: 11 }}>{m.n}</Badge></td>
                     {SECTIONS.map(s => {
                       const v = m.secAvg[s.key];
                       const tone = v == null ? 'neutral' : scoreTone(v, threshold);
-                      return <td key={s.key} className="tnum" style={{ ...tdStyle, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: v == null ? 'var(--ink-3)' : `var(--${tone === 'neutral' ? 'ink-3' : tone})` }}>{v == null ? '—' : v}</td>;
+                      return <td key={s.key} className="tnum" style={{ ...tdStyle, height: 40, padding: '0 10px', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: v == null ? 'var(--ink-3)' : `var(--${tone === 'neutral' ? 'ink-3' : tone})` }}>{v == null ? '—' : v}</td>;
                     })}
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <span className="tnum" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: `var(--${scoreTone(m.avg, threshold) === 'neutral' ? 'ink' : scoreTone(m.avg, threshold)})` }}>
-                        {m.avg}<span style={{ fontSize: 11 }}>%</span>
+                    <td style={{ ...tdStyle, height: 40, padding: '0 10px', textAlign: 'center' }}>
+                      <span className="tnum" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13.5, color: `var(--${scoreTone(m.avg, threshold) === 'neutral' ? 'ink' : scoreTone(m.avg, threshold)})` }}>
+                        {m.avg}<span style={{ fontSize: 10 }}>%</span>
                       </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </Table>
+            </table>
           </div>
         ) : <EmptyState title="No audits match these filters" body="Try widening the date range or clearing filters." />}
       </Card>
@@ -271,6 +274,8 @@ function AnalyticsView({ audits, threshold }) {
           </div>
         ) : <EmptyState title="No data to analyze" />}
       </Card>
+      </React.Fragment>
+      )}
     </div>
   );
 }

@@ -113,7 +113,7 @@ const QA_AUDITORS = [
 // email; this list seeds the demo and is overridden at runtime from /api/config
 // (QA_AUDITOR_EMAILS env) so adding a new auditor never needs a code change.
 let QA_AUDITOR_EMAILS = QA_AUDITORS.map(a => a.email.toLowerCase()).concat(['samapti.pal@solarsquare.in']);
-const ROLE_LABEL = { TL: 'Team Lead', QA: 'QA Auditor' };
+const ROLE_LABEL = { TL: 'Team Lead', QA: 'QA Auditor', ZSM: 'Zonal Sales Manager', ADOS: 'ADOS', LRM: 'LRM', ADMIN: 'Admin' };
 function roleForEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   return e && QA_AUDITOR_EMAILS.indexOf(e) >= 0 ? 'QA' : 'TL';
@@ -124,6 +124,45 @@ function setQaAuditorEmails(list) {
   }
 }
 function getQaAuditorEmails() { return QA_AUDITOR_EMAILS.slice(); }
+
+// ---- Admin access ----
+// A small, explicit allowlist — Admin sees every team unrestricted regardless of where they
+// sit in the org chart (or even if they sit in it at all). Everyone else is scoped below.
+const ADMIN_EMAILS = [
+  'omprakash.p@solarsquare.in', 'manoj.jaiswal@solarsquare.in',
+  'analytics.sse@solarsquare.in', 'samapti.pal@solarsquare.in',
+].map(s => s.toLowerCase());
+function isAdminEmail(email) { return ADMIN_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0; }
+
+// ---- Full org-chart role resolution ----
+// roleForEmail() above only distinguishes TL vs QA (kept for back-compat where only that
+// split matters, e.g. tagging who authored an audit). This resolves the FULL hierarchy —
+// LRM / TL / ZSM / ADOS / QA — by matching the signed-in email against the LIVE employee
+// list (each row already carries its own email plus its TL/ZSM/ADOS emails from
+// EmployeeMaster), so it works against real sheet data, not just the mock roster.
+function orgRoleForEmail(email, agents) {
+  const e = String(email || '').trim().toLowerCase();
+  const list = Array.isArray(agents) ? agents : [];
+  if (!e) return 'TL';
+  if (QA_AUDITOR_EMAILS.indexOf(e) >= 0) return 'QA';
+  if (list.some(a => String(a.email || '').trim().toLowerCase() === e)) return 'LRM';
+  if (list.some(a => String(a.tlEmail || '').trim().toLowerCase() === e)) return 'TL';
+  if (list.some(a => String(a.mgrEmail || '').trim().toLowerCase() === e)) return 'ZSM';
+  if (list.some(a => String(a.adosEmail || '').trim().toLowerCase() === e)) return 'ADOS';
+  return 'TL'; // unknown email (e.g. demo/local) — safest default that still shows something
+}
+
+// Which LRM emails a role may see. Returns null for "unrestricted" (QA / Admin see everyone).
+function agentEmailsForScope(role, email, agents) {
+  const e = String(email || '').trim().toLowerCase();
+  const list = Array.isArray(agents) ? agents : [];
+  const norm = s => String(s || '').trim().toLowerCase();
+  if (role === 'LRM') return new Set(list.filter(a => norm(a.email) === e).map(a => a.email));
+  if (role === 'TL') return new Set(list.filter(a => norm(a.tlEmail) === e).map(a => a.email));
+  if (role === 'ZSM') return new Set(list.filter(a => norm(a.mgrEmail) === e).map(a => a.email));
+  if (role === 'ADOS') return new Set(list.filter(a => norm(a.adosEmail) === e).map(a => a.email));
+  return null;
+}
 
 // ---- Geography ----
 // City + cluster ("Combined City, Cluster" in the Meeting Tracker sheet).
@@ -404,6 +443,7 @@ window.QA = {
   SECTIONS, PARAMS, PASS_DEFAULT, scoreAudit, normItem, nameFromEmail, SESSION,
   MANAGERS, TEAM_LEADS, AGENTS, QA_AUDITORS, ADOS_LIST,
   ROLE_LABEL, roleForEmail, setQaAuditorEmails, getQaAuditorEmails,
+  ADMIN_EMAILS, isAdminEmail, orgRoleForEmail, agentEmailsForScope,
   CITY_BY_TL, cityForTl, lighthouseUrl, LIGHTHOUSE_BASE,
   MOCK_AUDITS: __MOCK_AUDITS,
   MEETING_TRACKER: buildMeetingTracker(__MOCK_AUDITS),
@@ -411,5 +451,19 @@ window.QA = {
     if (!iso) return '\u2014';
     const d = new Date(iso + 'T00:00:00');
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  },
+  // Single source of truth for "today" (YYYY-MM-DD, local time). EVERY date filter/preset
+  // in the app (Summary, Analytics, Performance, the New Audit queue) must call this instead
+  // of computing its own — previously Summary hard-coded a fixed date while other views used
+  // the live clock, so "Today"/"This week" meant different things on different screens.
+  todayISO: () => {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+  fmtDateShort: (iso) => {
+    if (!iso) return '\u2014';
+    const d = new Date(iso + 'T00:00:00');
+    return isNaN(d) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   },
 };

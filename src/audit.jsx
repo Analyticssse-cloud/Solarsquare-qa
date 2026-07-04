@@ -205,6 +205,7 @@ function AgentCombo({ agents, value, onPick }) {
 function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPick }) {
   const { fmtDate } = window.QA;
   const isQA = role === 'QA';
+  const showTabs = isQA || role === 'TL'; // ZSM/ADOS see one pre-scoped team queue, no mine/all split
   const [q, setQ] = useStateA('');
   // QA reviews TL-audited leads first ('review'); 'all' lets them reach any scheduled lead.
   const [tab, setTab] = useStateA(isQA ? 'review' : 'mine');
@@ -213,8 +214,8 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
   const mine = pending.filter(m => m.assignedAuditorEmail && norm(m.assignedAuditorEmail) === norm(auditorEmail));
   // Leads a Team Lead has already audited — the QA Auditor's primary review queue.
   const reviewable = (isQA && tlAudited) ? pending.filter(m => tlAudited.has(m.leadId)) : [];
-  const base = isQA
-    ? (tab === 'review' ? reviewable : pending)
+  const base = !showTabs ? pending
+    : isQA ? (tab === 'review' ? reviewable : pending)
     : (tab === 'all' ? pending : mine);
 
   // Distinct scheduled dates in the current queue (each with a count) — powers the date chips.
@@ -254,13 +255,14 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
 
   return (
     <div>
-      <TextInput value={q} placeholder="Filter this queue — Lead ID, LRM or city…" autoComplete="off" onChange={setQ} />
       <div style={{
-        marginTop: 10, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
+        border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
         overflow: 'hidden', background: 'var(--surface)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderBottom: '1px solid var(--line-soft)' }}>
-          {isQA
+          {!showTabs
+            ? <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}>Your team's pending meetings <span className="tnum" style={{ color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>({pending.length})</span></span>
+          : isQA
             ? <>
                 <Tab id="review" label="Needs QA review" n={reviewable.length} />
                 <Tab id="all" label="All scheduled" n={pending.length} />
@@ -270,27 +272,28 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
                 <Tab id="all" label="All pending" n={pending.length} />
               </>}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 10px', borderBottom: '1px solid var(--line-soft)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-            <span style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-3)' }}>
-              <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8h13 M7 3v3 M13 3v3" /></svg>
-              Scheduled on
-            </span>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              style={{ height: 32, padding: '0 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12.5, fontFamily: 'inherit' }} />
-            {dateFilter
-              ? <button type="button" onClick={() => setDateFilter('')} style={{ height: 32, padding: '0 11px', borderRadius: 99, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600 }}>Clear · today &amp; upcoming</button>
-              : <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Showing today &amp; upcoming</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: '1px solid var(--line-soft)' }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <TextInput value={q} placeholder="Filter — Lead ID, LRM or city…" autoComplete="off" onChange={setQ} style={{ height: 34 }} />
           </div>
-          {dateOptions.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflowX: 'auto' }}>
-              <DateChip active={dateFilter === ''} label="All" n={base.length} onClick={() => setDateFilter('')} />
-              {dateOptions.map(([iso, n]) => (
-                <DateChip key={iso} active={dateFilter === iso} label={shortDate(iso)} n={n} onClick={() => setDateFilter(iso)} />
-              ))}
-            </div>
+          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+            title="Jump to a specific scheduled date"
+            style={{ height: 34, padding: '0 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12.5, fontFamily: 'inherit', flex: '0 0 auto' }} />
+          {dateFilter && (
+            <button type="button" onClick={() => setDateFilter('')} title="Clear date" style={{
+              flex: '0 0 auto', width: 34, height: 34, borderRadius: 8, border: '1px solid var(--line)',
+              background: 'var(--surface)', color: 'var(--ink-3)', fontSize: 13,
+            }}>×</button>
           )}
         </div>
+        {dateOptions.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflowX: 'auto', padding: '8px 10px', borderBottom: '1px solid var(--line-soft)' }}>
+            <DateChip active={dateFilter === ''} label="All" n={base.length} onClick={() => setDateFilter('')} />
+            {dateOptions.map(([iso, n]) => (
+              <DateChip key={iso} active={dateFilter === iso} label={shortDate(iso)} n={n} onClick={() => setDateFilter(iso)} />
+            ))}
+          </div>
+        )}
         <div style={{ maxHeight: 340, overflowY: 'auto', padding: 4 }}>
           {matches.map(m => {
             const assignedMe = norm(m.assignedAuditorEmail) === norm(auditorEmail);
@@ -318,7 +321,9 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
           })}
           {matches.length === 0 && (
             <div style={{ padding: '16px 12px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5, textAlign: 'center' }}>
-              {isQA && tab === 'review'
+              {!showTabs
+                ? (pending.length === 0 ? 'No meetings scheduled for today or later are pending across your team — all caught up. 🎉' : 'No meetings match your filter.')
+                : isQA && tab === 'review'
                 ? (reviewable.length === 0
                     ? <>No TL-audited leads are waiting for QA review. Switch to <span style={{ color: 'var(--primary-strong)', fontWeight: 600 }}>All scheduled</span> to audit any meeting.</>
                     : 'No meetings match your filter.')
@@ -363,7 +368,7 @@ function AuditView({ agents, meetings = [], audits = [], onSubmit, threshold, se
   // TL already scored still appears for the QA Auditor (and vice-versa), so both can
   // independently audit the same lead. Past-day meetings drop off — auditors only work
   // today's & upcoming meetings (the "Scheduled on" picker can still target a specific day).
-  const todayISO = (() => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })();
+  const todayISO = window.QA.todayISO();
   const pending = useMemoA(() => {
     const done = new Set(
       audits.filter(a => (a.auditorRole || window.QA.roleForEmail(a.auditorEmail)) === myRole)
@@ -529,9 +534,9 @@ function AuditView({ agents, meetings = [], audits = [], onSubmit, threshold, se
             const pct = sectionPct[s.key];
             const tone = scoreTone(pct, threshold);
             return (
-              <Card key={s.key} pad={false}
+              <Card key={s.key} pad={false} accent={`var(--sec-${s.key})`}
                 title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 22, height: 22, borderRadius: 7, background: 'var(--primary-soft)', color: 'var(--primary-strong)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{si + 1}</span>
+                  <span style={{ width: 22, height: 22, borderRadius: 7, background: `color-mix(in oklch, var(--sec-${s.key}) 16%, transparent)`, color: `var(--sec-${s.key})`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{si + 1}</span>
                   {s.name}
                 </span>}
                 action={<div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

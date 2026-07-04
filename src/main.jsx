@@ -11,5 +11,6 @@ import './analytics.jsx';
 import './summary.jsx';
 import './performance.jsx';
 import './calibration.jsx';
+import './settings.jsx';
 import './auth.js';   // optional Google sign-in (no-op unless VITE_GOOGLE_CLIENT_ID is set)
 import './app.jsx';   // mounts <App /> into #root
