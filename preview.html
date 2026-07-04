@@ -30,6 +30,28 @@
   }
   [data-density="compact"] { --pad-card: 16px; --row-h: 42px; --gap: 12px; }
   [data-density="comfy"]   { --pad-card: 30px; --row-h: 62px; --gap: 24px; }
+  :root {
+    --sec-opening: var(--primary); --sec-selling: var(--primary); --sec-qualification: var(--primary);
+    --sec-objection: var(--primary); --sec-closing: var(--primary);
+    --kpi-1: var(--primary); --kpi-2: var(--primary); --kpi-3: var(--primary); --kpi-4: var(--primary);
+  }
+  [data-style="vibrant"], [data-style="bold"] {
+    --sec-opening: oklch(0.58 0.15 300);
+    --sec-selling: oklch(0.72 0.15 80);
+    --sec-qualification: oklch(0.6 0.12 190);
+    --sec-objection: oklch(0.62 0.18 35);
+    --sec-closing: oklch(0.55 0.17 255);
+    --kpi-1: oklch(0.55 0.17 255);
+    --kpi-2: oklch(0.6 0.13 190);
+    --kpi-3: oklch(0.6 0.16 300);
+    --kpi-4: oklch(0.7 0.15 80);
+  }
+  [data-style="bold"] {
+    --bg: oklch(0.975 0.014 75);
+    --surface-2: oklch(0.96 0.016 75);
+    --primary: oklch(0.53 0.20 var(--accent-h));
+    --primary-strong: oklch(0.45 0.21 var(--accent-h));
+  }
   [data-theme="dark"] {
     --bg: oklch(0.21 0.015 260); --surface: oklch(0.255 0.016 260); --surface-2: oklch(0.235 0.015 260);
     --line: oklch(0.33 0.018 260); --line-soft: oklch(0.30 0.016 260);
@@ -73,6 +95,7 @@
   <script type="text/babel" src="./src/summary.jsx"></script>
   <script type="text/babel" src="./src/performance.jsx"></script>
   <script type="text/babel" src="./src/calibration.jsx"></script>
+  <script type="text/babel" src="./src/settings.jsx"></script>
   <script type="text/babel" src="./src/app.jsx"></script>
 </body>
 </html>
