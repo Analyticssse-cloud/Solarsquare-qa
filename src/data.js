@@ -131,6 +131,7 @@ function getQaAuditorEmails() { return QA_AUDITOR_EMAILS.slice(); }
 const ADMIN_EMAILS = [
   'omprakash.p@solarsquare.in', 'manoj.jaiswal@solarsquare.in',
   'analytics.sse@solarsquare.in', 'samapti.pal@solarsquare.in',
+  'abhay.t@solarsquare.in','yatish.r@solarsquare.in','parul.d@solarsquare.in',
 ].map(s => s.toLowerCase());
 function isAdminEmail(email) { return ADMIN_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0; }
 
