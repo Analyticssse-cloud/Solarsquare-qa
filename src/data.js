@@ -131,7 +131,6 @@ function getQaAuditorEmails() { return QA_AUDITOR_EMAILS.slice(); }
 const ADMIN_EMAILS = [
   'omprakash.p@solarsquare.in', 'manoj.jaiswal@solarsquare.in',
   'analytics.sse@solarsquare.in', 'samapti.pal@solarsquare.in',
-  'abhay.t@solarsquare.in','yatish.r@solarsquare.in','parul.d@solarsquare.in',
 ].map(s => s.toLowerCase());
 function isAdminEmail(email) { return ADMIN_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0; }
 
@@ -219,6 +218,55 @@ function auditorForLrm(emp) {
 function makeRng(seed) {
   let s = seed >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+// ---- ZSM audit allocation ----
+// A ZSM audits a RANDOM SAMPLE of tomorrow's meetings booked by the LRMs in the cluster
+// assigned to them (their downline in EmployeeMaster: ZSM Email == their email). Fixed size,
+// so the workload is predictable: ZSM_QUEUE_SIZE meetings per day.
+//
+// The sample must be STABLE — reloading the page, or coming back after auditing three of
+// them, must not reshuffle the allocation. So it is drawn from a PRNG seeded on
+// (ZSM email + the target date): same manager + same day => same 15 leads, every time,
+// with no server-side state to keep. Different managers and different days diverge.
+const ZSM_QUEUE_SIZE = 15;
+function hashSeed(str) {
+  let h = 2166136261 >>> 0;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function seededShuffle(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+// Draw `size` meetings scheduled on `dateISO` from `meetings`, spread fairly across the LRMs
+// who booked them (round-robin over a shuffled LRM order, each LRM's own rows shuffled) so
+// one busy LRM can't swallow the whole sample. Returns rows sorted by schedule time.
+function zsmDailySample(meetings, { email, dateISO, size = ZSM_QUEUE_SIZE } = {}) {
+  const day = String(dateISO || '');
+  const pool = (meetings || []).filter(m => String(m.scheduleISO || '').slice(0, 10) === day);
+  if (!pool.length) return [];
+  const rng = makeRng(hashSeed(String(email || '').trim().toLowerCase() + '|' + day));
+  const byLrm = new Map();
+  pool.forEach(m => {
+    const k = String(m.lrmEmail || m.lrmName || '?').trim().toLowerCase();
+    if (!byLrm.has(k)) byLrm.set(k, []);
+    byLrm.get(k).push(m);
+  });
+  const lanes = seededShuffle([...byLrm.keys()], rng).map(k => seededShuffle(byLrm.get(k), rng));
+  const out = [];
+  for (let round = 0; out.length < size; round++) {
+    let added = 0;
+    for (const lane of lanes) {
+      if (round >= lane.length) continue;
+      out.push(lane[round]); added++;
+      if (out.length >= size) break;
+    }
+    if (!added) break;
+  }
+  return out.sort((a, b) => String(a.scheduleDate || '').localeCompare(String(b.scheduleDate || '')));
 }
 
 // Each agent has a latent skill profile (per-section bias) -> believable patterns.
@@ -445,6 +493,7 @@ window.QA = {
   MANAGERS, TEAM_LEADS, AGENTS, QA_AUDITORS, ADOS_LIST,
   ROLE_LABEL, roleForEmail, setQaAuditorEmails, getQaAuditorEmails,
   ADMIN_EMAILS, isAdminEmail, orgRoleForEmail, agentEmailsForScope,
+  ZSM_QUEUE_SIZE, zsmDailySample,
   CITY_BY_TL, cityForTl, lighthouseUrl, LIGHTHOUSE_BASE,
   MOCK_AUDITS: __MOCK_AUDITS,
   MEETING_TRACKER: buildMeetingTracker(__MOCK_AUDITS),
@@ -459,6 +508,12 @@ window.QA = {
   // the live clock, so "Today"/"This week" meant different things on different screens.
   todayISO: () => {
     const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+  // Tomorrow (local, YYYY-MM-DD) — the ZSM audit window.
+  tomorrowISO: () => {
+    const d = new Date(); d.setDate(d.getDate() + 1);
     const p = n => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   },

@@ -202,9 +202,10 @@ function AgentCombo({ agents, value, onPick }) {
 // Defaults to the signed-in TL's assigned queue; "All pending" shows every un-audited
 // meeting. Each row carries a recording player + Lighthouse link. Selecting one
 // auto-fills LRM / Lead ID / dates downstream.
-function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPick }) {
+function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPick, allocated = 0, sampleDate = '' }) {
   const { fmtDate } = window.QA;
   const isQA = role === 'QA';
+  const isZSM = role === 'ZSM';
   const showTabs = isQA || role === 'TL'; // ZSM/ADOS see one pre-scoped team queue, no mine/all split
   const [q, setQ] = useStateA('');
   // QA reviews TL-audited leads first ('review'); 'all' lets them reach any scheduled lead.
@@ -260,7 +261,12 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
         overflow: 'hidden', background: 'var(--surface)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderBottom: '1px solid var(--line-soft)' }}>
-          {!showTabs
+          {isZSM
+            ? <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}>Tomorrow's sample — {sampleDate ? fmtDate(sampleDate) : ''}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{pending.length} of {allocated} left · random pick from your cluster</span>
+              </span>
+          : !showTabs
             ? <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}>Your team's pending meetings <span className="tnum" style={{ color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>({pending.length})</span></span>
           : isQA
             ? <>
@@ -321,7 +327,13 @@ function LeadPicker({ pending, auditorEmail, auditorName, role, tlAudited, onPic
           })}
           {matches.length === 0 && (
             <div style={{ padding: '16px 12px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5, textAlign: 'center' }}>
-              {!showTabs
+              {isZSM
+                ? (allocated === 0
+                    ? 'No meetings are scheduled for tomorrow by the LRMs in your cluster yet — check back once bookings come in.'
+                    : pending.length === 0
+                    ? `All ${allocated} of tomorrow's sampled meetings are audited — you're done for the day. 🎉`
+                    : 'No meetings match your filter.')
+              : !showTabs
                 ? (pending.length === 0 ? 'No meetings scheduled for today or later are pending across your team — all caught up. 🎉' : 'No meetings match your filter.')
                 : isQA && tab === 'review'
                 ? (reviewable.length === 0
@@ -368,14 +380,25 @@ function AuditView({ agents, meetings = [], audits = [], onSubmit, threshold, se
   // TL already scored still appears for the QA Auditor (and vice-versa), so both can
   // independently audit the same lead. Past-day meetings drop off — auditors only work
   // today's & upcoming meetings (the "Scheduled on" picker can still target a specific day).
+  //
+  // ZSM is the exception: a Zonal Sales Manager audits a fixed RANDOM SAMPLE of TOMORROW's
+  // meetings booked by the LRMs in their assigned cluster (meetings are already scoped to
+  // their downline upstream). The sample is drawn first and only then reduced by what they've
+  // already audited, so the day's allocation is fixed at 15 and simply shrinks as they work.
   const todayISO = window.QA.todayISO();
+  const tomorrowISO = window.QA.tomorrowISO();
+  const isZSM = myRole === 'ZSM';
+  const zsmAllocation = useMemoA(() => (
+    isZSM ? window.QA.zsmDailySample(meetings, { email: auditorEmail, dateISO: tomorrowISO }) : []
+  ), [isZSM, meetings, auditorEmail, tomorrowISO]);
   const pending = useMemoA(() => {
     const done = new Set(
       audits.filter(a => (a.auditorRole || window.QA.roleForEmail(a.auditorEmail)) === myRole)
             .map(a => a.leadId)
     );
+    if (isZSM) return zsmAllocation.filter(m => !done.has(m.leadId));
     return meetings.filter(m => !done.has(m.leadId) && (!m.scheduleISO || m.scheduleISO >= todayISO));
-  }, [meetings, audits, myRole, todayISO]);
+  }, [meetings, audits, myRole, todayISO, isZSM, zsmAllocation]);
   // Leads a TL has audited — the QA Auditor's primary "needs review" queue.
   const tlAuditedLeads = useMemoA(() => new Set(
     audits.filter(a => (a.auditorRole || window.QA.roleForEmail(a.auditorEmail)) === 'TL').map(a => a.leadId)
@@ -486,8 +509,8 @@ function AuditView({ agents, meetings = [], audits = [], onSubmit, threshold, se
               </div>
             ) : (
               <div style={{ marginBottom: 16 }}>
-                <Field label="Meeting to audit" hint={myQueueCount ? `${myQueueCount} in your queue` : `${pending.length} pending`}>
-                  <LeadPicker pending={pending} auditorEmail={auditorEmail} auditorName={auditorName} role={myRole} tlAudited={tlAuditedLeads} onPick={pickLead} />
+                <Field label="Meeting to audit" hint={isZSM ? `${pending.length} of ${zsmAllocation.length} left` : myQueueCount ? `${myQueueCount} in your queue` : `${pending.length} pending`}>
+                  <LeadPicker pending={pending} auditorEmail={auditorEmail} auditorName={auditorName} role={myRole} tlAudited={tlAuditedLeads} onPick={pickLead} allocated={isZSM ? zsmAllocation.length : 0} sampleDate={isZSM ? tomorrowISO : ''} />
                 </Field>
               </div>
             ))}
